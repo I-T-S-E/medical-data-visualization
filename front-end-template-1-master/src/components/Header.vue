@@ -58,7 +58,8 @@ export default {
 <style lang="less" scoped>
         #header-time{
             color:#52a2e4;
-            font-size: 17px;
+            font-size: 15px;
+            white-space: nowrap;
         }
         .cool-border {
             position: relative;
@@ -103,20 +104,21 @@ export default {
         }
     #header{
         display: flex;
-        padding: 10px 150px 0 150px;
+        padding: 10px 40px 0 40px;
         align-items: center;
         justify-content: space-between;
         #header-left{
             h1{
                 color:#fff;
-                font-size: 23px;
+                font-size: 21px;
+                white-space: nowrap;
             }
         }
         #header-nav{
             display: flex;
             .header-nav-item{
-                margin-right: 15px;
-                padding:10px 40px;
+                margin-right: 8px;
+                padding: 9px 20px;
                 border: 1px solid transparent;
                 border-radius: 80px;
             }
@@ -126,11 +128,46 @@ export default {
             .nav{
                 text-decoration: none;
                 color:#52a2e4;
-                font-size: 15px;
+                font-size: 14px;
+                white-space: nowrap;
             }
         }
         // #header-time{
         //     font-size: 17px;
         // }
+    }
+
+    // 7 个导航项在大屏上仍保持舒展，中等宽度时自动压缩间距
+    @media (max-width: 1600px) {
+        #header {
+            padding: 10px 20px 0 20px;
+            #header-left h1 {
+                font-size: 19px;
+            }
+            #header-nav .header-nav-item {
+                margin-right: 5px;
+                padding: 8px 13px;
+            }
+            #header-nav .nav {
+                font-size: 13px;
+            }
+        }
+    }
+
+    @media (max-width: 1400px) {
+        #header {
+            #header-left h1 {
+                font-size: 17px;
+            }
+            #header-nav .header-nav-item {
+                padding: 7px 10px;
+            }
+            #header-nav .nav {
+                font-size: 12px;
+            }
+            #header-time {
+                display: none;
+            }
+        }
     }
 </style>

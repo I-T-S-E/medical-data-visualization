@@ -3,8 +3,11 @@ import VueRouter from 'vue-router'
 import Index from '../views/Index.vue'
 import Pred from '../views/Pred.vue'
 import TableData from '../views/TableData.vue'
+import DataCenter from '../views/DataCenter.vue'
+import ModelCenter from '../views/ModelCenter.vue'
 import Report from '../views/Report.vue'
 import AiChat from '../views/AiChat.vue'
+import AiAnalyst from '../views/AiAnalyst.vue'
 
 Vue.use(VueRouter)
 
@@ -26,6 +29,18 @@ const routes = [{
     meta: { name: "数据管理" }
 },
 {
+    path: '/data-center',
+    name: 'DataCenter',
+    component: DataCenter,
+    meta: { name: "数据监控中心" }
+},
+{
+    path: '/model-center',
+    name: 'ModelCenter',
+    component: ModelCenter,
+    meta: { name: "模型中心" }
+},
+{
     path: '/report',
     name: 'Report',
     component: Report,
@@ -36,6 +51,12 @@ const routes = [{
     name: 'AiChat',
     component: AiChat,
     meta: { name: "AI医疗助手" }
+},
+{
+    path: '/ai-analyst',
+    name: 'AiAnalyst',
+    component: AiAnalyst,
+    meta: { name: "AI数据分析" }
 }]
 
 const router = new VueRouter({

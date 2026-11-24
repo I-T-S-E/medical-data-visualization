@@ -32,16 +32,17 @@ from utils.db_config import get_db_connection
 
 from utils.getAllData import *
 from utils.getPublicData import *
-from machine.tree import *
 
 load_dotenv()
 
-# ================= [新增] AI 模块导入 =================
+# ================= [新增] AI 模块导入（可选依赖） =================
+# BERT 依赖（transformers/torch 权重）较重，且模型权重可能未随仓库分发。
+# 导入失败时只降级 /submitModel 预测能力，不阻塞首页、数据管理与监控中心启动。
 try:
-    # 尝试从 machine/tree.py 导入 MedicalAI 类
+    from machine.tree import *
     from machine.tree import MedicalAI
-except ImportError as e:
-    print(f"⚠️ 导入模型失败，请检查 machine/tree.py 是否存在。错误: {e}")
+except Exception as e:
+    print(f"⚠️ 导入 BERT 模块失败，/submitModel 将不可用。错误: {e}")
     MedicalAI = None
 
 # ================= [新增] 爬虫调度模块导入 =================
@@ -64,6 +65,22 @@ try:
     app.register_blueprint(data_bp)
 except Exception as _data_bp_error:
     print(f"⚠️ 注册 /api/v1/data 蓝图失败: {_data_bp_error}")
+
+# ================= [任务3] 数据监控中心 =================
+try:
+    from backend.api.monitor_api import monitor_bp
+
+    app.register_blueprint(monitor_bp)
+except Exception as _monitor_bp_error:
+    print(f"⚠️ 注册 /data/monitor 蓝图失败: {_monitor_bp_error}")
+
+# ================= [任务3] 模型评估与版本中心 =================
+try:
+    from backend.api.model_api import model_bp
+
+    app.register_blueprint(model_bp)
+except Exception as _model_bp_error:
+    print(f"⚠️ 注册 /models 蓝图失败: {_model_bp_error}")
 
 
 @app.route('/internal/data-changed', methods=['POST'])
