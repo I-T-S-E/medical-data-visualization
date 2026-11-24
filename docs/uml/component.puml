@@ -1,0 +1,94 @@
+@startuml component
+' 医疗疾病数据可视化系统 - 组件图
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+
+package "前端 (Vue2, 8080)" {
+  component "Index.vue\n实时大屏" as FE_Index
+  component "TableData.vue\n数据管理" as FE_Table
+  component "Pred.vue\n在线预测" as FE_Pred
+  component "Report.vue\n报告生成" as FE_Report
+  component "AiChat.vue\nAI 医疗助手" as FE_Chat
+  component "DataCenter.vue\n数据监控中心" as FE_Data
+  component "ModelCenter.vue\n模型评估中心" as FE_Model
+  component "AiAnalyst.vue\nAI 数据分析助手" as FE_Analyst
+  component "socket.io-client" as FE_WS
+  component "axios\n/api 代理" as FE_HTTP
+}
+
+package "Flask API 服务 (5000)" {
+  component "应用工厂\ncreate_app()" as Factory
+  component "Home / Data / Prediction\nModel / Report API" as Controllers
+  component "SyncService\nDataService\nPredictionService\nModelService\nLLMService" as Services
+  component "CaseRepository\nSyncRepository\nChatRepository\nModelRepository" as Repos
+  component "EventBus\n(进程内 Pub-Sub)" as Bus
+  component "Internal 回调\n/internal/data-changed" as Internal
+}
+
+package "WebSocket 网关 (5001)" {
+  component "SocketGateway\n/ws/chat" as WS_Chat
+  component "SocketGateway\n/ws/data" as WS_Data
+  component "/internal/publish" as WS_Publish
+}
+
+package "调度与采集" {
+  component "APScheduler\nstart_scheduler.py" as Scheduler
+  component "crawler_scheduler\nspiders/" as Crawler
+  component "data_sync_manager\n(委托 SyncService)" as SyncMgr
+}
+
+package "模型服务" {
+  component "ModelRegistry\n(Strategy + Factory)" as Registry
+  component "BERT\nmachine/tree.py" as BERT
+  component "TextCNN\nmachine/textcnn.py" as TextCNN
+  component "Ensemble\nml/ensemble.py" as Ensemble
+  component "LLMProvider\nDeepSeek Adapter" as LLMProvider
+}
+
+database "MySQL 3306\nmedicalinfo" as DB
+cloud "DeepSeek API" as DeepSeek
+
+FE_Index --> FE_HTTP : GET /getHomeData
+FE_Index --> FE_WS : 订阅 data.updated
+FE_Table --> FE_HTTP : /tableData, /data/*
+FE_Pred --> FE_HTTP : /submitModel, /api/v1/predict
+FE_Report --> FE_HTTP : /templates/*, /reports/*
+FE_Chat --> FE_WS : /ws/chat
+FE_Data --> FE_HTTP : /api/v1/data/*
+FE_Model --> FE_HTTP : /api/v1/models/*
+FE_Analyst --> FE_WS : /ws/chat
+
+FE_HTTP --> Controllers : HTTP /api 代理
+FE_WS --> WS_Chat
+FE_WS --> WS_Data
+
+Controllers --> Services
+Services --> Repos
+Repos --> DB
+Services --> Bus
+Bus --> Internal
+Internal --> WS_Publish : HTTP 转发
+WS_Publish --> WS_Data : emit data.updated
+
+Services --> Registry
+Registry --> BERT
+Registry --> TextCNN
+Registry --> Ensemble
+Services --> LLMProvider
+LLMProvider --> DeepSeek
+
+Scheduler --> Crawler : 定时爬取
+Scheduler --> SyncMgr : 定时同步
+SyncMgr --> Services : run_incremental()
+SyncMgr --> Internal : POST /internal/data-changed
+
+note right of Registry
+  预测算法可切换
+  bert / textcnn / ensemble
+end note
+
+note bottom of Bus
+  数据变更 -> 事件 -> WS 推送
+  前端被动刷新
+end note
+@enduml

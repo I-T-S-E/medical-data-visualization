@@ -1,0 +1,54 @@
+@startuml use-case
+' 医疗疾病数据可视化系统 - 用例图
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "医生 / 研究者" as Doctor
+actor "数据管理员" as DataAdmin
+actor "系统管理员" as SysAdmin
+actor "AI 助手\n(内部服务)" as AI
+
+rectangle "医疗疾病数据可视化系统" {
+  usecase "查看实时大屏" as UC01
+  usecase "按条件检索病例" as UC02
+  usecase "相似病例推荐" as UC03
+  usecase "模型预测与置信度" as UC04
+  usecase "模型对比评估" as UC05
+  usecase "配置数据源" as UC06
+  usecase "手动触发同步" as UC07
+  usecase "查看同步日志" as UC08
+  usecase "失败重试" as UC09
+  usecase "查看数据版本并回滚" as UC10
+  usecase "模型重训练 / 上线切换" as UC11
+  usecase "查看任务调度状态" as UC12
+  usecase "查看审计日志" as UC13
+  usecase "多轮问诊" as UC14
+  usecase "基于筛选条件提问" as UC15
+  usecase "自动生成统计图表" as UC16
+}
+
+Doctor --> UC01
+Doctor --> UC02
+Doctor --> UC03
+Doctor --> UC04
+Doctor --> UC05
+
+DataAdmin --> UC06
+DataAdmin --> UC07
+DataAdmin --> UC08
+DataAdmin --> UC09
+DataAdmin --> UC10
+
+SysAdmin --> UC11
+SysAdmin --> UC12
+SysAdmin --> UC13
+
+AI --> UC14
+AI --> UC15
+AI --> UC16
+
+UC15 ..> UC16 : <<include>>
+UC04 ..> UC03 : <<extend>>
+UC05 ..> UC11 : <<include>>
+@enduml

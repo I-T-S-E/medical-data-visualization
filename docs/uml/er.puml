@@ -1,0 +1,152 @@
+@startuml er
+' 医疗疾病数据可视化系统 - ER 图
+hide circle
+skinparam linetype ortho
+
+entity "cases" as cases {
+  * id : int <<PK>>
+  --
+  type : varchar
+  gender : varchar
+  age : varchar
+  time : varchar
+  content : varchar
+  docName : varchar
+  docHospital : varchar
+  department : varchar
+  detailUrl : varchar
+  height : varchar
+  weight : varchar
+  illDuration : varchar
+  allergy : varchar
+  content_hash : char(64) <<UK>>
+  source_code : varchar(32)
+  batch_id : bigint <<FK>>
+  updated_at : datetime
+}
+
+entity "data_sources" as data_sources {
+  * id : int <<PK>>
+  --
+  code : varchar(64) <<UK>>
+  name : varchar
+  disease : varchar
+  type : varchar
+  description : varchar
+  enabled : tinyint
+  status : varchar
+  last_run_at : datetime
+  last_success_at : datetime
+  last_delta : int
+  total_records : int
+  last_message : varchar
+}
+
+entity "data_versions" as data_versions {
+  * id : int <<PK>>
+  --
+  name : varchar
+  version_code : varchar
+  operator : varchar
+  action : varchar
+  description : varchar
+  created_at : datetime
+  total_records : int
+  delta_records : int
+}
+
+entity "cases_snapshot" as cases_snapshot {
+  * id : int <<PK>>
+  --
+  version_id : int <<FK>>
+  case_id : int
+  type : varchar
+  gender : varchar
+  age : varchar
+  time : varchar
+  content : varchar
+  docName : varchar
+  docHospital : varchar
+  department : varchar
+  detailUrl : varchar
+  height : varchar
+  weight : varchar
+  illDuration : varchar
+  allergy : varchar
+}
+
+entity "sync_batches" as sync_batches {
+  * id : bigint <<PK>>
+  --
+  source_code : varchar(32)
+  status : varchar(20)
+  inserted : int
+  updated : int
+  skipped : int
+  error_message : text
+  started_at : datetime
+  finished_at : datetime
+}
+
+entity "sync_logs" as sync_logs {
+  * id : bigint <<PK>>
+  --
+  batch_id : bigint <<FK>>
+  level : varchar(16)
+  message : text
+  created_at : datetime
+}
+
+entity "chat_sessions" as chat_sessions {
+  * id : varchar(64) <<PK>>
+  --
+  title : varchar(255)
+  context_json : json
+  created_at : datetime
+  updated_at : datetime
+}
+
+entity "chat_messages" as chat_messages {
+  * id : bigint <<PK>>
+  --
+  session_id : varchar(64) <<FK>>
+  role : varchar(16)
+  content : mediumtext
+  tokens : int
+  model : varchar(64)
+  created_at : datetime
+}
+
+entity "model_versions" as model_versions {
+  * id : bigint <<PK>>
+  --
+  model_name : varchar(64)
+  version : varchar(32)
+  path : varchar(255)
+  is_online : tinyint
+  macro_f1 : decimal(6,4)
+  accuracy : decimal(6,4)
+  trained_at : datetime
+}
+
+entity "model_metrics" as model_metrics {
+  * id : bigint <<PK>>
+  --
+  model_version_id : bigint <<FK>>
+  metric_key : varchar(64)
+  metric_value : decimal(10,4)
+  detail_json : json
+}
+
+data_versions ||--o{ cases_snapshot : "包含快照"
+sync_batches ||--o{ sync_logs : "产生日志"
+sync_batches ||--o{ cases : "写入批次"
+chat_sessions ||--o{ chat_messages : "包含消息"
+model_versions ||--o{ model_metrics : "包含指标"
+data_sources ||..o{ cases : "来源（source_code）"
+
+note right of cases
+  content_hash 唯一索引 uk_cases_hash
+  实现增量去重与幂等 upsert
+end note
+@enduml
