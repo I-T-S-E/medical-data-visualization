@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 import csv
 import pymysql
@@ -7,6 +8,11 @@ import json
 from datetime import datetime
 from hashlib import md5
 from utils.db_config import get_db_config
+
+# 确保项目根目录在 sys.path 中，便于定时任务导入 backend 包
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
 
 # 配置日志 - 显示INFO级别的详细日志
 logging.basicConfig(
@@ -421,22 +427,39 @@ data_sync_manager = DataSyncManager()
 
 # 定义可被定时任务调用的函数
 def scheduled_sync_csv_to_db():
-    """用于定时任务的数据同步函数"""
+    """用于定时任务的数据同步函数（优先使用任务(2) 的 SyncService）。"""
     logger.info("定时任务触发数据同步 - 开始")
     try:
-        result = data_sync_manager.monitor_and_sync()
+        from backend.services.sync_service import SyncService
+
+        result = SyncService().run_incremental(max_retries=3, retry_delays=(60, 300, 900))
         logger.info(f"定时任务触发数据同步 - 完成，结果: {result}")
-        return result
+        return bool(result.get('success'))
     except Exception as e:
-        logger.error(f"定时任务触发数据同步 - 异常: {e}")
-        import traceback
-        logger.error(f"异常堆栈信息: {traceback.format_exc()}")
-        return False
+        logger.error(f"定时任务触发数据同步 - SyncService 异常: {e}")
+        logger.info("回退到旧同步逻辑")
+        try:
+            result = data_sync_manager.monitor_and_sync()
+            logger.info(f"定时任务触发数据同步 - 旧逻辑完成，结果: {result}")
+            return result
+        except Exception as inner:
+            import traceback
+            logger.error(f"旧同步逻辑同样失败: {inner}")
+            logger.error(f"异常堆栈信息: {traceback.format_exc()}")
+            return False
 
 def scheduled_validate_consistency():
-    """用于定时任务的数据一致性验证函数"""
+    """用于定时任务的数据一致性验证函数（优先使用 SyncService.reconcile）。"""
     logger.info("定时任务触发数据一致性验证")
-    return data_sync_manager.validate_data_consistency()
+    try:
+        from backend.services.sync_service import SyncService
+
+        result = SyncService().reconcile()
+        logger.info(f"数据一致性验证结果: {result}")
+        return result
+    except Exception as e:
+        logger.error(f"SyncService.reconcile 异常，回退旧逻辑: {e}")
+        return data_sync_manager.validate_data_consistency()
 
 if __name__ == "__main__":
     # 测试数据同步功能

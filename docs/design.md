@@ -140,7 +140,7 @@ backend/
 | GET | `/api/v1/data/batches` | `limit=20` | `[{id, sourceCode, status, inserted, updated, skipped, startedAt, finishedAt, errorMessage}]` |
 | GET | `/api/v1/data/logs` | `batch_id` | `[{id, batchId, level, message, createdAt}]` |
 | POST | `/api/v1/data/sync` | `{source?}` | `{batchId, inserted, updated, skipped, total}` |
-| POST | `/api/v1/data/reconcile` | `{}` | `{csvCount, dbCount, diff, consistent}` |
+| POST | `/api/v1/data/reconcile` | `{}` | `{csvCount, dbCount, missing, extra, consistent}` |
 | GET | `/api/v1/data/health` | - | `[{sourceCode, lastSyncAt, successRate, freshnessSeconds}]` |
 | POST | `/api/v1/predict` | `{content, model}` | `{disease, confidence, probabilities, model}` |
 | GET | `/api/v1/models` | - | `[{id, modelName, version, isOnline, macroF1, accuracy, trainedAt}]` |
@@ -156,6 +156,8 @@ backend/
 
 服务端校验 Token 后，转发至 WebSocket 服务 `POST http://127.0.0.1:5001/internal/publish`，向 `/ws/data` 房间广播 `data.updated`。
 
+> 实现说明：`SyncService` 在同步成功后默认**直接** POST 到 WS 的 `/internal/publish`，避免同进程内自调用造成阻塞；`/internal/data-changed` 作为独立调度器/外部系统的统一入口，校验 Token 后同样转发到 WS，两条路径最终都由 Socket.IO 广播。
+
 ---
 
 ## 6. 数据库设计
@@ -165,17 +167,22 @@ backend/
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | int PK AI | 主键 |
-| type / gender / age / time / content | varchar | 现有业务字段 |
+| type / gender / age / time | varchar | 现有业务字段 |
+| content | TEXT | 原有 `varchar(255)` 不足以容纳爬虫内容，`002` 迁移放宽 |
 | docName / docHospital / department / detailUrl | varchar | 现有业务字段 |
 | height / weight / illDuration / allergy | varchar | 现有业务字段 |
 | content_hash | char(64) | SHA-256 去重哈希，唯一索引 |
 | source_code | varchar(32) | 来源标识，默认 `crawler` |
-| batch_id | bigint | 最近一次写入批次 |
+| batch_id | bigint | 首次写入批次（内容不变不重复更新） |
 | updated_at | datetime | 更新时间 |
 
 唯一索引：`uk_cases_hash(content_hash)`。
 
 > 迁移注意：现有表无业务唯一键，需先回填 `content_hash`（对已有行计算 SHA-256）并去重，再建唯一索引，否则索引创建失败。
+>
+> `002_widen_cases_content.sql`：将 `cases.content` 与 `cases_snapshot.content` 放宽为 `TEXT`（当前 CSV 内容最长 276 字符，`varchar(255)` 会报 1406 错误）。迁移按 `001` → `002` 顺序执行。
+>
+> 对账口径：`consistent = (missing == 0)`，即“当前 CSV 的病例是否已全部入库”；`extra` 表示库中存在但当前 CSV 没有的历史数据，仅作提示。
 
 ### 6.2 `sync_batches`
 
@@ -255,10 +262,9 @@ Scheduler / 手动触发
     → 批量 INSERT ... ON DUPLICATE KEY UPDATE
     → 写 sync_logs
     → 更新 sync_batches(status=success, 统计, finished_at)
-    → POST /internal/data-changed
-      → POST /internal/publish (5001)
-        → SocketIO emit('data.updated') 到 /ws/data
-          → Index.vue 节流 3s 调 /getHomeData + Toast
+    → POST /internal/publish（或经 /internal/data-changed 转发）
+      → SocketIO emit('data.updated') 到 /ws/data
+        → Index.vue 节流 3s 调 /getHomeData + Toast
 ```
 
 失败处理：按 1/5/15 分钟退避重试，3 次后标记 `failed` 并写 `error_message`。
