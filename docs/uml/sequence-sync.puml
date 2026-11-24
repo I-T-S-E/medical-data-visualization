@@ -1,0 +1,61 @@
+@startuml sequence-sync
+' 数据同步时序图：爬虫 -> CSV -> 增量入库 -> 事件推送 -> 大屏刷新
+autonumber
+skinparam sequenceMessageAlign center
+
+actor "数据管理员" as Admin
+participant "前端\nIndex.vue" as FE
+participant "Flask API\n(5000)" as API
+participant "SyncService" as Sync
+participant "SyncRepository" as SR
+participant "CaseRepository" as CR
+database "MySQL" as DB
+participant "Scheduler\n(APScheduler)" as Sched
+participant "WebSocket 网关\n(5001)" as WS
+
+== 定时或手动触发 ==
+alt 定时任务
+  Sched -> Sync : run_incremental("crawler")
+else 手动同步
+  Admin -> FE : 点击“立即同步”
+  FE -> API : POST /api/v1/data/sync
+  API -> Sync : run_incremental(source)
+end
+
+Sync -> SR : createBatch(source_code)
+SR -> DB : INSERT sync_batches(status=running)
+SR --> Sync : batchId
+Sync -> Sync : 读取 CSV + 规范化字段
+Sync -> Sync : SHA-256(content_hash)
+
+loop 每批 N 条
+  Sync -> CR : upsertBatch(rows)
+  CR -> DB : INSERT ... ON DUPLICATE KEY UPDATE
+  DB --> CR : affected rows
+  CR --> Sync : {inserted, updated, skipped}
+end
+
+Sync -> SR : writeLog(batchId, INFO, ...)
+SR -> DB : INSERT sync_logs
+Sync -> SR : updateBatch(batchId, success, stat)
+SR -> DB : UPDATE sync_batches
+Sync -> API : publishChanged(result)
+API -> WS : POST /internal/publish
+WS -> WS : socketio.emit('data.updated', payload, namespace='/ws/data')
+
+WS --> FE : data.updated {batchId, inserted, updated, total, updatedAt}
+FE -> FE : 节流 3s + Toast("新增 N 条")
+FE -> API : GET /getHomeData
+API -> DB : 查询统计
+DB --> API : 统计数据
+API --> FE : JSON
+FE -> FE : 重新渲染大屏
+
+== 失败重试 ==
+alt 同步失败
+  Sync -> SR : writeLog(batchId, ERROR, msg)
+  Sync -> Sync : 退避 1/5/15 分钟重试，最多 3 次
+  Sync -> SR : updateBatch(batchId, failed, error)
+  Sync --> Admin : 批次状态 failed（可在监控中心重试）
+end
+@enduml

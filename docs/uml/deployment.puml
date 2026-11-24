@@ -1,0 +1,57 @@
+@startuml deployment
+' 医疗疾病数据可视化系统 - 部署图
+skinparam nodeStyle rectangle
+
+node "用户终端\n浏览器" as Client {
+  component "Vue2 前端\nhttp://localhost:8080" as Web
+}
+
+node "应用服务器" as AppServer {
+  node "Flask API 进程" as API {
+    component "app.py / create_app()\n:5000" as Flask
+  }
+  node "WebSocket 进程" as WS {
+    component "websocket_chat.py\nSocketGateway\n:5001" as SocketIO
+  }
+  node "调度进程" as Sched {
+    component "APScheduler\nstart_scheduler.py" as APS
+  }
+  node "调度/同步脚本" as Scripts {
+    component "spiders/\ncrawler + sync" as Spiders
+  }
+}
+
+node "数据库服务器" as DBServer {
+  database "MySQL 8.x\nmedicalinfo\n:3306" as MySQL
+}
+
+cloud "外部服务" as External {
+  component "DeepSeek API\nhttps://api.deepseek.com" as DeepSeek
+}
+
+node "数据源站点\n(仅供学习研究)" as Source
+
+Client <--> AppServer : HTTP/HTTPS
+Web --> Flask : REST /api -> :5000
+Web --> SocketIO : Socket.IO /ws/chat, /ws/data -> :5001
+Web --> DeepSeek : 不直连（经后端代理）
+Flask --> MySQL : PyMySQL :3306
+SocketIO --> MySQL : 会话/历史
+APS --> Scripts : 触发任务
+Scripts --> MySQL : 写入 cases/sync_*
+Scripts --> Source : 低频抓取
+Flask --> SocketIO : POST /internal/publish
+Flask --> DeepSeek : HTTPS OpenAI SDK
+SocketIO --> DeepSeek : HTTPS OpenAI SDK
+
+note right of WS
+  端口 5001
+  同时承载 /ws/chat 与 /ws/data
+end note
+
+note bottom of MySQL
+  端口 3306
+  数据库 medicalinfo
+  字符集 utf8mb4
+end note
+@enduml

@@ -1,6 +1,6 @@
 import json
 import os
-from flask import Flask, request
+from flask import Flask, request, jsonify
 from flask_socketio import SocketIO, emit, send
 from flask_cors import CORS
 from openai import OpenAI
@@ -48,6 +48,9 @@ SYSTEM_PROMPT = """你是一位专业的AI医疗助手，专门为用户提供�
 
 # 存储会话历史
 sessions = {}
+
+# 内部推送 Token（与 Flask API 保持一致）
+INTERNAL_TOKEN = os.getenv('INTERNAL_TOKEN', 'dev-internal-token')
 
 @socketio.on('connect', namespace='/ws/chat')
 def handle_connect():
@@ -157,6 +160,42 @@ def handle_clear_history():
         'type': 'info',
         'message': '会话历史已清除'
     })
+
+# ================= 数据更新推送（/ws/data） =================
+@socketio.on('connect', namespace='/ws/data')
+def handle_data_connect():
+    logger.info(f"[ws/data] client connected: {request.sid}")
+    emit('connected', {'status': 'Connected to data stream'})
+
+
+@socketio.on('join', namespace='/ws/data')
+def handle_data_join(data):
+    logger.info(f"[ws/data] join: {request.sid} {data}")
+    emit('subscribed', {'sid': request.sid})
+
+
+@socketio.on('ping', namespace='/ws/data')
+def handle_data_ping(data=None):
+    emit('pong', {'time': datetime.now().isoformat()})
+
+
+@socketio.on('disconnect', namespace='/ws/data')
+def handle_data_disconnect():
+    logger.info(f"[ws/data] client disconnected: {request.sid}")
+
+
+@app.route('/internal/publish', methods=['POST'])
+def internal_publish():
+    """内部入口：向 /ws/data 房间广播 data.updated 事件。"""
+    token = os.getenv('INTERNAL_TOKEN', 'dev-internal-token')
+    if request.headers.get('X-Internal-Token') != token:
+        return jsonify({'message': 'forbidden', 'code': 401, 'data': {}}), 401
+
+    payload = request.get_json(force=True, silent=True) or {}
+    socketio.emit('data.updated', payload, namespace='/ws/data')
+    logger.info(f"[ws/data] broadcast data.updated: {payload}")
+    return jsonify({'message': 'success', 'code': 200, 'data': payload})
+
 
 if __name__ == '__main__':
     # 启动WebSocket服务器

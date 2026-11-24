@@ -192,6 +192,14 @@
             <button class="fullscreen-btn" @click="toggleFullScreen">
               {{ isFullscreen ? '退出全屏' : '全屏展示' }}
             </button>
+            <div
+              class="sync-status"
+              :class="{ online: dataSocketConnected }"
+              :title="dataSocketConnected ? '实时推送已连接' : '轮询模式（30s）'"
+            >
+              <span class="sync-dot"></span>
+              <span>最近同步：{{ lastSyncTime || '未知' }}</span>
+            </div>
           </div>
 
           <div class="index-content">
@@ -391,6 +399,7 @@
 <script>
 import $ from "jquery";
 import LeftTop from "@/components/LeftTop.vue";
+import { io } from "socket.io-client";
 function formatter(number) {
   const numbers = number.toString().split("").reverse();
   const segs = [];
@@ -419,6 +428,12 @@ export default {
       wordData: "",
       circleData: "",
       lastData: {},
+      // 任务(2)：实时数据推送状态
+      dataSocket: null,
+      dataSocketConnected: false,
+      lastSyncTime: "",
+      lastAutoRefreshAt: 0,
+      pendingRefreshTimer: null,
       // 疾病类型分布：完整数据及滚动窗口控制
       fullDiseaseStats: [],
       diseaseScrollIndex: 0,
@@ -1107,6 +1122,57 @@ export default {
       // 基于病例列表前端重算统计，支持筛选/联动
       this.rebuildStatsFromCases(this.allCasesData);
     },
+    // ===== 任务(2)：WebSocket 实时刷新 =====
+    connectDataSocket() {
+      try {
+        this.dataSocket = io("http://localhost:5001/ws/data", {
+          transports: ["websocket", "polling"],
+          reconnection: true,
+          reconnectionDelay: 2000,
+          reconnectionAttempts: Infinity,
+        });
+        this.dataSocket.on("connect", () => {
+          this.dataSocketConnected = true;
+        });
+        this.dataSocket.on("disconnect", () => {
+          this.dataSocketConnected = false;
+        });
+        this.dataSocket.on("connect_error", () => {
+          this.dataSocketConnected = false;
+        });
+        this.dataSocket.on("data.updated", (payload) => {
+          this.handleDataUpdated(payload || {});
+        });
+      } catch (e) {
+        // WebSocket 不可用时保持既有 30s 轮询
+        this.dataSocketConnected = false;
+      }
+    },
+    handleDataUpdated(payload) {
+      if (payload.updatedAt) {
+        this.lastSyncTime = payload.updatedAt;
+      }
+      const inserted = Number(payload.inserted || 0);
+      const updated = Number(payload.updated || 0);
+      if (inserted || updated) {
+        this.$message.success(
+          `数据已更新：新增 ${inserted} 条，更新 ${updated} 条`
+        );
+      }
+      // 节流 3s，避免短时间多次刷新
+      const now = Date.now();
+      const elapsed = now - this.lastAutoRefreshAt;
+      if (elapsed >= 3000) {
+        this.lastAutoRefreshAt = now;
+        this.fetchHomeData();
+      } else if (!this.pendingRefreshTimer) {
+        this.pendingRefreshTimer = setTimeout(() => {
+          this.pendingRefreshTimer = null;
+          this.lastAutoRefreshAt = Date.now();
+          this.fetchHomeData();
+        }, 3000 - elapsed);
+      }
+    },
   },
   async created() {
     $(document).ready(async () => {
@@ -1129,6 +1195,17 @@ export default {
   },
   async mounted() {
     await this.fetchHomeData();
+    this.connectDataSocket();
+  },
+  beforeDestroy() {
+    if (this.dataSocket) {
+      this.dataSocket.disconnect();
+      this.dataSocket = null;
+    }
+    if (this.pendingRefreshTimer) {
+      clearTimeout(this.pendingRefreshTimer);
+      this.pendingRefreshTimer = null;
+    }
   },
   components: {
     LeftTop,
@@ -1284,6 +1361,30 @@ export default {
   font-size: 12px;
   color: #e6f7ff;
   z-index: 2;
+}
+
+.sync-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(86, 138, 234, 0.8);
+  background: rgba(6, 25, 60, 0.8);
+  color: #9ad6ff;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff9f43;
+  box-shadow: 0 0 6px #ff9f43;
+}
+
+.sync-status.online .sync-dot {
+  background: #2ecc71;
+  box-shadow: 0 0 6px #2ecc71;
 }
 
 .filter-group {

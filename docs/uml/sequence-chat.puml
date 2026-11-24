@@ -1,0 +1,66 @@
+@startuml sequence-chat
+' 大模型对话时序图：前端 -> WebSocket -> LLM Provider -> 工具调用 -> 流式返回
+autonumber
+skinparam sequenceMessageAlign center
+
+actor "医生 / 研究者" as User
+participant "前端\nAiAnalyst.vue" as FE
+participant "WebSocket 网关\n(5001)" as WS
+participant "LLMService" as LLM
+participant "LLMProvider\n(DeepSeek)" as Provider
+participant "ChatRepository" as ChatRepo
+participant "CaseRepository" as CaseRepo
+database "MySQL" as DB
+
+User -> FE : 打开 AI 数据分析助手
+FE -> WS : connect(namespace=/ws/chat)
+WS --> FE : connected
+
+FE -> WS : join {sessionId, context:{dateRange, disease, gender}}
+WS -> ChatRepo : createOrLoadSession(sessionId, context)
+ChatRepo -> DB : SELECT/INSERT chat_sessions
+ChatRepo --> WS : history
+
+User -> FE : 输入“最近一个月高血压患者年龄分布”
+FE -> WS : message {sessionId, content}
+WS -> ChatRepo : appendMessage(sessionId, user, content)
+ChatRepo -> DB : INSERT chat_messages
+
+WS -> LLM : stream(sessionId, content, context)
+LLM -> Provider : chat.completions.create(stream=True)
+Provider --> LLM : chunk 1
+LLM --> WS : delta {messageId, content}
+WS --> FE : delta（首字 < 2s）
+FE -> FE : 增量渲染
+
+opt 需要查询数据
+  LLM -> WS : tool {name:"query_cases_stats", args:{...}}
+  WS --> FE : tool {name, args}
+  LLM -> CaseRepo : executeWhitelistedQuery(name, args)
+  CaseRepo -> DB : SELECT ... LIMIT 200（参数化，5s 超时）
+  DB --> CaseRepo : rows
+  CaseRepo --> LLM : ToolResult
+  LLM -> LLM : 组织回答 + 生成 ECharts spec
+  LLM --> WS : chart {spec}
+  WS --> FE : chart {spec}
+  FE -> FE : 渲染 ECharts 图表
+end
+
+Provider --> LLM : 结束
+LLM -> ChatRepo : appendMessage(sessionId, assistant, content)
+ChatRepo -> DB : INSERT chat_messages
+LLM --> WS : done {messageId, usage, finishedAt}
+WS --> FE : done
+
+== 取消生成 ==
+User -> FE : 点击“停止”
+FE -> WS : stop {sessionId}
+WS -> LLM : 取消当前流
+
+== 异常与降级 ==
+alt Provider 异常
+  LLM --> WS : error {code, message}
+  WS --> FE : error（提示稍后重试）
+  LLM -> LLM : 降级本地 BERT / 规则回复
+end
+@enduml

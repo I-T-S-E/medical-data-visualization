@@ -57,6 +57,38 @@ except ImportError as e:
 
 app = Flask(__name__)
 
+# ================= [任务2] 数据实时同步 =================
+try:
+    from backend.api.data_api import data_bp
+
+    app.register_blueprint(data_bp)
+except Exception as _data_bp_error:
+    print(f"⚠️ 注册 /api/v1/data 蓝图失败: {_data_bp_error}")
+
+
+@app.route('/internal/data-changed', methods=['POST'])
+def internal_data_changed():
+    """内部回调：数据同步完成后转发到 WebSocket 服务广播 data.updated。"""
+    token = os.getenv('INTERNAL_TOKEN', 'dev-internal-token')
+    if request.headers.get('X-Internal-Token') != token:
+        return jsonify({'message': 'forbidden', 'code': 401, 'data': {}}), 401
+
+    payload = request.get_json(force=True, silent=True) or {}
+    ws_url = os.getenv('WS_PUBLISH_URL', 'http://127.0.0.1:5001/internal/publish')
+    try:
+        requests.post(
+            ws_url,
+            json=payload,
+            headers={'X-Internal-Token': token},
+            timeout=3,
+        )
+    except Exception as exc:
+        print(f"[System] 转发 data.updated 事件失败: {exc}")
+        return jsonify({'message': 'error', 'code': 502, 'data': {'error': str(exc)}}), 502
+
+    return jsonify({'message': 'success', 'code': 200, 'data': payload})
+
+
 # ================= [新增] AI 引擎初始化 =================
 ai_engine = None
 
@@ -199,7 +231,7 @@ def _ensure_data_management_tables():
               gender VARCHAR(255) DEFAULT NULL,
               age VARCHAR(255) DEFAULT NULL,
               time VARCHAR(255) DEFAULT NULL,
-              content VARCHAR(255) DEFAULT NULL,
+              content TEXT DEFAULT NULL,
               docName VARCHAR(255) DEFAULT NULL,
               docHospital VARCHAR(255) DEFAULT NULL,
               department VARCHAR(255) DEFAULT NULL,

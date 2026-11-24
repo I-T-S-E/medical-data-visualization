@@ -1,0 +1,45 @@
+@startuml state-template
+' 报告模板状态图：draft -> published -> offline
+skinparam state {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+[*] --> draft : 新建模板 / 保存草稿
+
+state draft {
+  draft : 可编辑内容与样式
+  draft : 仅创建者可见
+}
+
+state published {
+  published : 可被报告生成流程引用
+  published : 对使用者可见
+}
+
+state offline {
+  offline : 不再允许新报告引用
+  offline : 历史报告仍可查看
+}
+
+draft --> published : POST /templates/{id}/publish\n校验模板结构通过
+draft --> [*] : DELETE /templates/{id}\n删除草稿
+
+published --> offline : POST /templates/{id}/offline\n管理员下线
+offline --> published : POST /templates/{id}/publish\n重新发布
+published --> draft : 编辑并撤回为草稿
+
+offline --> [*] : DELETE /templates/{id}\n删除模板
+
+note right of published
+  发布条件：
+  - 必填占位符完整
+  - 模板结构校验通过
+  - 操作人具备权限
+end note
+
+note right of offline
+  下线原因：模板过时 / 合规要求
+  下线后生成报告需选择其他模板
+end note
+@enduml

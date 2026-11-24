@@ -1,0 +1,191 @@
+@startuml class
+' 医疗疾病数据可视化系统 - 核心类图
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+
+package "api (Controller)" {
+  class HomeApi {
+    +getHomeData() JSON
+    +tableData() JSON
+  }
+  class DataApi {
+    -syncService : SyncService
+    +batches(limit) JSON
+    +logs(batchId) JSON
+    +sync(source) JSON
+    +reconcile() JSON
+    +health() JSON
+  }
+  class PredictionApi {
+    -predictionService : PredictionService
+    +predict(content, model) JSON
+    +submitModel(content) JSON
+  }
+  class ModelApi {
+    -modelService : ModelService
+    +listModels() JSON
+    +setOnline(id) JSON
+  }
+  class ReportApi {
+    +listTemplates() JSON
+    +generateReport(dto) JSON
+  }
+  class RealtimeApi {
+    +dataChanged(payload) JSON
+  }
+}
+
+package "services (Facade)" {
+  class SyncService {
+    +runIncremental(source) SyncResult
+    +runReconcile() ReconcileResult
+    +health() List
+    -computeHash(row) String
+    -publishChanged(result) void
+  }
+  class PredictionService {
+    -registry : ModelRegistry
+    +predict(text, modelName) Prediction
+  }
+  class ModelService {
+    +list() List
+    +setOnline(id) void
+    +trainAndEvaluate() Metrics
+  }
+  class ReportService {
+    +generate(dto) File
+    #collect() Data
+    #validate() void
+    #render() File
+    #export() File
+  }
+  class LLMService {
+    -provider : LLMProvider
+    +stream(sessionId, content, context) void
+    -executeTool(name, args) ToolResult
+  }
+  class DataService {
+    +summary() JSON
+    +importCases(file) ImportResult
+    +rollback(versionId) void
+  }
+}
+
+package "repositories (Repository)" {
+  class CaseRepository {
+    +upsertBatch(rows) UpsertStat
+    +list(limit, offset) List
+    +count() int
+    +snapshot(versionId) void
+  }
+  class SyncRepository {
+    +createBatch(source) long
+    +updateBatch(id, status, stat) void
+    +writeLog(batchId, level, msg) void
+    +listBatches(limit) List
+  }
+  class ChatRepository {
+    +createSession(id, title, context) void
+    +appendMessage(sessionId, role, content) void
+    +history(sessionId, limit) List
+  }
+  class ModelRepository {
+    +saveVersion(meta) long
+    +saveMetrics(versionId, metrics) void
+    +list() List
+    +setOnline(id) void
+  }
+}
+
+package "ml (Strategy + Factory)" {
+  abstract class Predictor {
+    +predict(text) Prediction
+  }
+  class BaselinePredictor {
+    +predict(text) Prediction
+  }
+  class BertPredictor {
+    +predict(text) Prediction
+  }
+  class TextCNN {
+    +predict(text) Prediction
+  }
+  class BiLSTMAttention {
+    +predict(text) Prediction
+  }
+  class EnsemblePredictor {
+    -members : List<Predictor>
+    +predict(text) Prediction
+  }
+  class ModelRegistry {
+    +get(name) Predictor
+    +register(name, predictor) void
+  }
+}
+
+package "realtime (Observer)" {
+  class EventBus {
+    +publish(topic, payload) void
+    +subscribe(topic, handler) void
+  }
+  class SocketGateway {
+    +onJoin(sid, data) void
+    +onMessage(sid, data) void
+    +broadcastDataUpdated(payload) void
+  }
+}
+
+class LLMProvider {
+  <<interface>>
+  +stream(messages) Iterator<Chunk>
+}
+class DeepSeekProvider {
+  +stream(messages) Iterator<Chunk>
+}
+
+HomeApi --> DataService
+DataApi --> SyncService
+PredictionApi --> PredictionService
+ModelApi --> ModelService
+ReportApi --> ReportService
+RealtimeApi --> EventBus
+
+SyncService --> SyncRepository
+SyncService --> CaseRepository
+SyncService --> EventBus
+PredictionService --> ModelRegistry
+ModelService --> ModelRepository
+ModelService --> ModelRegistry
+ReportService --> CaseRepository
+LLMService --> ChatRepository
+LLMService --> LLMProvider
+DataService --> CaseRepository
+
+ModelRegistry --> Predictor
+Predictor <|-- BaselinePredictor
+Predictor <|-- BertPredictor
+Predictor <|-- TextCNN
+Predictor <|-- BiLSTMAttention
+Predictor <|-- EnsemblePredictor
+EnsemblePredictor o-- Predictor
+
+LLMProvider <|.. DeepSeekProvider
+EventBus --> SocketGateway
+
+note right of ModelRegistry
+  Strategy + Factory:
+  按名称创建 bert/textcnn/ensemble
+  启动时懒加载，单例复用
+end note
+
+note right of CaseRepository
+  Repository:
+  隔离参数化 SQL
+  业务层不依赖数据库细节
+end note
+
+note bottom of EventBus
+  Observer / Pub-Sub:
+  数据变更后主动推送前端
+end note
+@enduml
